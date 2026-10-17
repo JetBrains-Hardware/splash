@@ -275,6 +275,92 @@ class UpstreamTest(unittest.TestCase):
             self.prepare(selection(self.root, "someone/package", language_only=False))
         self.assertFalse(selection(self.root, "someone/package").link.exists())
 
+    def test_a_local_model_directory_is_installed_once_and_reused(self):
+        # A local target is a directory-backed source like a local draft: the
+        # same assembly, built once, verified by its files on later starts.
+        fake = fake_hub(self, self.cache)
+        folder = mlx_target(self.root / "models-on-disk" / "My-MLX-4bit", DENSE)
+        chosen = selection(self.root, str(folder))
+        self.assertTrue(chosen.local)
+        self.assertEqual(chosen.label, "My-MLX-4bit")
+        self.assertEqual(chosen.link.parent, chosen.models_root / ".selections")
+        output, warnings = self.prepare(chosen)
+        self.assertEqual(warnings, "")
+        self.assertIn(f"Installing {folder} as {DENSE.name} (mlx-affine)", output)
+        # Only the draft comes from the Hub.
+        self.assertEqual(fake.requests, [(DENSE.draft_repo, None)])
+        self.assertNotIn(f"{MODEL}/model.safetensors", fake.downloads)
+        record = assembly.verify(chosen.link)
+        self.assertEqual(record["model"], str(folder))
+        self.assertEqual(
+            record["sources"],
+            {
+                "target": {"repo": str(folder), "revision": None},
+                "draft": {"repo": DENSE.draft_repo, "revision": DRAFT_COMMIT},
+            },
+        )
+        self.assertEqual(
+            (chosen.link / "target/model.safetensors").readlink(),
+            folder / "model.safetensors",
+        )
+        # A local file has no Hub blob: its record digests the content.
+        entry = record["files"]["target/model.safetensors"]
+        self.assertEqual(entry["digest"], models.sha256(folder / "model.safetensors"))
+        # Only the draft's snapshot is pinned; a directory has no commit.
+        self.assertEqual(pins(self.cache), [DRAFT_COMMIT])
+        installed = chosen.link.resolve()
+        fake.requests.clear(), fake.downloads.clear()
+        output, _ = self.prepare(chosen)
+        self.assertIn("is already installed", output)
+        self.assertEqual(chosen.link.resolve(), installed)
+        self.assertEqual(fake.downloads, [])
+        # The directory changes: a new assembly of it is built once more.
+        (folder / "model.safetensors").write_text("re-exported weights")
+        output, _ = self.prepare(chosen)
+        self.assertIn(f"Reinstalling {folder}", output)
+        self.assertNotEqual(chosen.link.resolve(), installed)
+        self.assertEqual(
+            assembly.verify(chosen.link)["files"]["target/model.safetensors"]["digest"],
+            models.sha256(folder / "model.safetensors"),
+        )
+
+    def test_a_local_model_and_local_draft_never_ask_the_hub(self):
+        fake = FakeHub(self, self.cache)
+        folder = mlx_target(self.root / "My-MLX-4bit", DENSE)
+        draft = draft_dir(self.root / "My-DFlash2", DENSE)
+        chosen = selection(self.root, str(folder), draft_model=str(draft))
+        self.prepare(chosen)
+        self.assertEqual(fake.requests, [])
+        record = assembly.verify(chosen.link)
+        self.assertEqual(
+            record["sources"],
+            {
+                "target": {"repo": str(folder), "revision": None},
+                "draft": {"repo": str(draft), "revision": None},
+            },
+        )
+        self.assertEqual(
+            (chosen.link / "draft/model.safetensors").readlink(),
+            draft / "model.safetensors",
+        )
+        # A second start is verification alone.
+        output, _ = self.prepare(chosen)
+        self.assertIn("is already installed", output)
+        self.assertEqual(fake.requests, [])
+
+    def test_a_local_model_directory_is_refused_as_a_repository_is(self):
+        fake_hub(self, self.cache)
+        folder = mlx_target(self.root / "My-MLX-4bit", DENSE)
+        with self.assertRaisesRegex(models.ModelError, "--revision requires"):
+            self.prepare(selection(self.root, str(folder), revision="main"))
+        (folder / "manifest.json").write_text(
+            json.dumps({"format": {"name": "splash-packed-q4"}})
+        )
+        with self.assertRaisesRegex(models.ModelError, "is a Splash package"):
+            self.prepare(selection(self.root, str(folder)))
+        with self.assertRaisesRegex(models.ModelError, "local directory not found"):
+            self.prepare(selection(self.root, str(self.root / "missing")))
+
     def test_an_installed_splash_package_is_refused_before_any_request(self):
         # What an earlier release installed: a link to the package's snapshot.
         chosen = selection(self.root, "someone/package", language_only=False)
@@ -1456,7 +1542,7 @@ class UpstreamTest(unittest.TestCase):
         self.assertEqual((repo.directory, repo.revision), (None, "a" * 40))
         local = hub.Repository.resolve(str(self.root / MODEL))
         self.assertEqual((local.directory, local.revision), (self.root / MODEL, None))
-        with self.assertRaisesRegex(models.ModelError, "draft directory not found"):
+        with self.assertRaisesRegex(models.ModelError, "local directory not found"):
             hub.Repository.resolve(str(self.root / "deleted-draft"))
 
     def test_unreachable_hub_uses_the_cache_or_explains_access(self):

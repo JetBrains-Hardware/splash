@@ -343,7 +343,11 @@ def prepare(selection):
     starts; a new commit is installed and published atomically; when the Hub
     cannot answer, or a new commit cannot be installed, the verified
     installation starts instead. A Splash package, installed or on the Hub,
-    is refused (models.refuse_package)."""
+    is refused (models.refuse_package). A local target directory has no
+    revision: its assembly is verified at every start by its files' sizes
+    and times, and built again when they change."""
+    if selection.local and selection.revision:
+        raise models.ModelError("--revision requires an upstream model ID")
     kind = models.installation_kind(selection.link)
     if kind == models.PACKAGE:
         models.refuse_package(
@@ -384,7 +388,7 @@ def _start_installed(selection, target, installed):
     if target.unreachable_reason:
         print(
             f"Could not reach the Hub ({target.unreachable_reason}); "
-            f"using the installed {selection.repo_id}@{target.revision[:12]}.",
+            f"using the installed {_at(target)}.",
             flush=True,
         )
     recorded = installed["sources"]["target"]
@@ -421,7 +425,7 @@ def _install_commit(selection, target, installed):
     if target.unreachable_reason:
         print(
             f"Could not reach the Hub ({target.unreachable_reason}); installing "
-            f"{selection.repo_id}@{target.revision[:12]} from the Hub cache.",
+            f"{_at(target)} from the Hub cache.",
             flush=True,
         )
     elif installed is not None:
@@ -447,9 +451,8 @@ def _keeping_installation(selection, installed, attempt):
     try:
         yield
     except (models.ModelError, OSError) as error:
-        commit = installed["sources"]["target"]["revision"]
         models.warn(
-            f"keeping the installed {selection.repo_id}@{commit[:12]}; "
+            f"keeping the installed {_recorded_at(installed['sources']['target'])}; "
             f"cannot {attempt}: {error}"
         )
         if _retain_installed(selection) is not None:
@@ -614,7 +617,14 @@ def _answered(repo):
 
 def _at(repo):
     """repo@commit, or a local directory's path."""
-    return f"{repo.name}@{repo.revision[:12]}" if repo.revision else repo.name
+    return _recorded_at({"repo": repo.name, "revision": repo.revision})
+
+
+def _recorded_at(source):
+    """repo@commit, or a local directory's path, as a record names it."""
+    if source["revision"]:
+        return f"{source['repo']}@{source['revision'][:12]}"
+    return source["repo"]
 
 
 def _draft_files(repo, target):
