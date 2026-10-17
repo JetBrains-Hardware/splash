@@ -87,6 +87,7 @@ access.
 | `--draft-model` | Matching DFlash2 checkpoint | Override the draft with a compatible repository or local directory. See [drafts](#drafts). |
 | `--language-only` | Off | Skip vision loading; image and PDF input is rejected. See [vision](#vision). |
 | `--offline` | Off | Start the installed model without asking the Hub, as `HF_HUB_OFFLINE=1` does. See [revisions](#revisions). |
+| `--data-dir` | `SPLASH_DATA` or Splash's data directory | Directory for the data Splash writes. See [data directory](#data-directory). |
 | `--port` | `SPLASH_PORT` or `8000` | HTTP port. |
 | `--host` | `127.0.0.1` | HTTP bind address. See [network and authentication](#network-and-authentication). |
 | `--allowed-host` | No extra names | Additional HTTP Host name, e.g. `mymac.local`; repeatable. |
@@ -402,7 +403,42 @@ are not moved.
 | `~/Library/Caches/Splash/prefix-cache` (`--cache-dir`) | The [persistent cache](#persistent-cache), with `--persistent-cache` only, within the [SSD cache](#ssd-cache)'s limit. Every start removes the caches there that nobody used for 14 days. |
 | `$TMPDIR/splash-cache-*` | The [SSD cache](#ssd-cache)'s files, on by default, without `--persistent-cache`, or when another process holds the persistent cache's directory or it cannot be used: one of KV pages and one of states, together at most about the SSD cache's limit, which follows the volume's free space up to 32 GiB unless `--max-cache-disk` sets it. Each is unlinked as it is created, so no directory lists it and macOS's storage settings count it as System Data, and its space returns when the engine exits, even after a crash. `--cache-dir` does not move them; they follow `TMPDIR`. |
 | `~/Library/Logs/Splash/crash` | [Crash traces](#failures-and-crash-traces), with `SPLASH_CRASH_TRACE=1` only. |
+| `$DARWIN_USER_CACHE_DIR/splash-ane` | The Neural Engine split's remembered calibrations ([Neural Engine prefill](#neural-engine-prefill)). |
 | Pi's `models.json` (`~/.pi/agent`, or `PI_CODING_AGENT_DIR`) and the Hermes profile (`~/.hermes/profiles/splash`, or `splash-<port>`) | The settings `splash pi` and `splash hermes` write ([agent launchers](#agent-launchers)). Every agent keeps its sessions in its own home; `splash claude`, `codex` and `opencode` pass their settings at launch and write none. |
+
+A [data directory](#data-directory) gathers all of these but the agents'
+files.
+
+### Data directory
+
+`splash serve --data-dir DIR`, or `SPLASH_DATA=DIR`, puts the data Splash
+writes under one directory:
+
+| Path | Holds |
+| --- | --- |
+| `DIR/models` | The installed models' links and metadata. |
+| `DIR/huggingface` | Hub downloads, unless `HF_HUB_CACHE` or `HF_HOME` is set. With a local `--model` and `--draft-model` nothing is downloaded. |
+| `DIR/tmp` | `TMPDIR` of the installer, the server and the engine: the [SSD cache](#ssd-cache)'s unlinked files and the installer's scratch. |
+| `DIR/prefix-cache` | The [persistent cache](#persistent-cache), unless `--cache-dir` names another. |
+| `DIR/ane` | The Neural Engine split's remembered calibrations. |
+| `DIR/thinking.key` | The key that encrypts the Messages reasoning a response hides. |
+| `DIR/logs/crash` | [Crash traces](#failures-and-crash-traces), with `SPLASH_CRASH_TRACE=1` only. |
+
+The launcher exports `SPLASH_DATA`, `TMPDIR` and, unless set otherwise,
+`HF_HUB_CACHE` to the installer and the server; the server and the engine
+read `SPLASH_DATA` for the rest. The program's own locks stay where they are
+without it (`build/runtime` in a checkout, `runtime/` of Splash's data
+directory in a release): `serve.lock`, which an upgrade takes to replace the
+program every data directory runs, and `serve-<port>.lock`, since a port is
+the machine's. Servers with different data directories share no
+installations or caches, so a local model can be served with everything
+beside another application's data:
+
+```sh
+splash serve --model ~/.local/share/app/models/My-MLX-4bit \
+    --draft-model ~/.local/share/app/models/My-DFlash2 \
+    --data-dir ~/.local/share/app/splash
+```
 
 ## API model aliases
 

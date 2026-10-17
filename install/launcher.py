@@ -97,6 +97,26 @@ def _request_json(path, timeout=2, *, port=serve_options.DEFAULT_PORT):
         return None
 
 
+def data_environment(layout, custom):
+    """The environment of every process serving from layout. With custom, a
+    data directory the user chose, SPLASH_DATA names it, which the server
+    and the engine read for the thinking key, crash traces, the persistent
+    cache and the Neural Engine's calibration; TMPDIR is its tmp/, where the
+    SSD cache's unlinked files go; and the Hub cache defaults under it
+    (HF_HUB_CACHE, when neither it nor HF_HOME is set): nothing is written
+    outside it then but the program's locks (paths.RUNTIME). The default
+    layout adds nothing."""
+    if not custom:
+        return {}
+    environment = {
+        paths.DATA_VARIABLE: str(layout.data),
+        "TMPDIR": str(layout.temporary),
+    }
+    if not (os.environ.get("HF_HUB_CACHE") or os.environ.get("HF_HOME")):
+        environment["HF_HUB_CACHE"] = str(layout.hub_cache)
+    return environment
+
+
 def _ensure_installed(selection):
     if not paths.PACKAGED:
         # Serialize builds across ports; make keeps the lock if the launcher exits.
@@ -194,6 +214,12 @@ def serve(args):
     if args.offline:
         # The installer and the server both read it.
         os.environ["HF_HUB_OFFLINE"] = "1"
+    layout = paths.layout(args.data_dir)
+    # The installer and the server read them too.
+    environment = data_environment(layout, args.data_dir is not None)
+    if environment:
+        layout.temporary.mkdir(parents=True, exist_ok=True)
+    os.environ.update(environment)
     # Keep both locks across exec until the foreground server exits.
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
     with (
@@ -234,7 +260,7 @@ def serve(args):
                 f"cannot bind {args.host}:{args.port}: {error}"
             ) from None
         selection = model_artifacts.Selection.of(
-            paths.MODELS,
+            layout.models,
             args.model,
             revision=args.revision,
             language_only=args.language_only,
@@ -429,6 +455,15 @@ def parse_args(argv=None):
         "--language-only",
         action="store_true",
         help="skip vision preparation and loading; image and PDF input is refused",
+    )
+    model.add_argument(
+        "--data-dir",
+        metavar="DIR",
+        default=os.environ.get(paths.DATA_VARIABLE) or None,
+        help="directory for the data Splash writes: installed models, and unless "
+        "set otherwise Hub downloads, temporary and cache files, the thinking key "
+        f"and crash traces (default: {paths.DATA_VARIABLE} or Splash's own data "
+        "directory)",
     )
     model.add_argument(
         "--offline",

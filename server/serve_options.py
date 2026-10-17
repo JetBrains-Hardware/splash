@@ -481,7 +481,8 @@ SERVE_OPTIONS = (
             default=None,
             metavar="DIRECTORY",
             help="where --persistent-cache keeps its files; needs "
-            "--persistent-cache (default: ~/Library/Caches/Splash/prefix-cache)",
+            "--persistent-cache (default: $SPLASH_DATA/prefix-cache, else "
+            "~/Library/Caches/Splash/prefix-cache)",
         ),
     ),
     ServeOption(

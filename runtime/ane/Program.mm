@@ -373,6 +373,9 @@ std::filesystem::path rememberedFile(std::string_view key) {
 } // namespace
 
 std::filesystem::path cacheDirectory() {
+  // The data directory SPLASH_DATA names holds everything Splash writes
+  // (install/paths.py).
+  if (const char *data = std::getenv("SPLASH_DATA"); data && *data) return std::filesystem::path(data) / "ane";
   char path[PATH_MAX];
   const size_t size = confstr(_CS_DARWIN_USER_CACHE_DIR, path, sizeof path);
   if (!size || size > sizeof path) throw std::runtime_error("macOS names no per-user cache directory");

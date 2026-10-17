@@ -182,10 +182,17 @@ std::filesystem::path executablePath() {
 }
 
 // Splash's caches in the home directory; empty without one.
-std::filesystem::path splashCaches() {
+std::filesystem::path homeCaches() {
   const char *home = std::getenv("HOME");
   return home && *home ? std::filesystem::path(home) / "Library/Caches/Splash"
                        : std::filesystem::path();
+}
+
+// Splash's caches: the data directory SPLASH_DATA names (install/paths.py),
+// else those in the home directory.
+std::filesystem::path splashCaches() {
+  if (const char *data = std::getenv("SPLASH_DATA"); data && *data) return std::filesystem::path(data);
+  return homeCaches();
 }
 
 engine::RuntimeBootstrapConfig
@@ -282,7 +289,7 @@ void closePersistentCache(engine::FdTransport &transport,
 }
 
 int runNative(const engine::NativeArguments &arguments) {
-  if (const std::filesystem::path caches = splashCaches(); !caches.empty())
+  if (const std::filesystem::path caches = homeCaches(); !caches.empty())
     reportLegacyWeightCache(caches / "weights");
   engine::FdTransport transport(STDIN_FILENO, STDOUT_FILENO);
   ShutdownSignals signals(transport);
