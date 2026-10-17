@@ -12,12 +12,15 @@ namespace splash::model {
 
 struct DFlashDraftLayout;
 
-// A DFlash2 checkpoint as its repository releases it, config.json and BF16
-// safetensors -> the draft's block images (DFlashDraft.cpp), laid out as a
-// target's are (model/GgufImage.hpp): every projection quantized into af4g64
-// planes as MLX's affine quantization rounds it, every other tensor copied as
-// stored. The checkpoint is planned once; each image is written into memory
-// when it is opened.
+// A DFlash2 checkpoint, config.json and safetensors as its repository
+// releases it (BF16) or as an MLX conversion quantized it -> the draft's
+// block images (DFlashDraft.cpp), laid out as a target's are
+// (model/GgufImage.hpp): every projection quantized into af4g64 planes as
+// MLX's affine quantization rounds it, or retiled into the planes of the
+// format MLX stored it in; the selector codebooks in bf16, as stored or
+// decoded from their quantization and rounded once; every other tensor
+// copied as stored. The checkpoint is planned once; each image is written
+// into memory when it is opened.
 class DraftCheckpointLoader final {
 public:
   DraftCheckpointLoader(metal::MetalBackend &backend, WeightImages &images, const std::filesystem::path &directory,

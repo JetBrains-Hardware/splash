@@ -1,14 +1,16 @@
 // A tiny DFlash2 draft checkpoint written into its block images, every byte
-// against independent oracles: each copied tensor as stored, and each
-// projection's planes the CPU reference's of the af4g64 rows
-// run_draft_preparation.py quantizes as MLX does (FIXTURE/expected). Then
+// against independent oracles: each copied tensor as stored, each decoded
+// codebook its bf16 decode, and each projection's planes the CPU reference's
+// of the af4g64 rows run_draft_preparation.py quantizes as MLX does
+// (FIXTURE/expected), whether the checkpoint holds BF16 projections or those
+// rows as an MLX conversion stores them. Then
 // the writer over memory of 0xFF bytes writes every byte, each image matches
 // its golden hash, again once the images are released and restored, and the
 // draft loader reads the images.
 //
-//   draft-preparation METALLIB FIXTURE GOLDENS
-// GOLDENS is dev/tests/fixtures/weight-goldens/goldens.json; its README says
-// how to update it.
+//   draft-preparation METALLIB FIXTURE GOLDENS SECTION
+// GOLDENS is dev/tests/fixtures/weight-goldens/goldens.json, SECTION the
+// fixture's hashes in it; its README says how to update them.
 #include "GgufFixtures.hpp"
 #include "TestAdmission.hpp"
 #include "model/DFlashDraft.hpp"
@@ -59,13 +61,17 @@ bool holds(const std::vector<uint8_t> &image, uint64_t offset, const std::vector
   return offset + bytes.size() <= image.size() && std::equal(bytes.begin(), bytes.end(), image.begin() + offset);
 }
 
-// Each copy of the planned image as stored in the checkpoint, and the planes
-// of each projection the CPU reference's of its parts' expected rows.
+// Each copy of the planned image as stored in the checkpoint, or its expected
+// bf16 rows when it decodes a quantized codebook, and the planes of each
+// projection the CPU reference's of its parts' expected rows.
 void checkImage(const std::vector<uint8_t> &image, const model::gguf::Image &plan,
                 const model::SafetensorsCheckpoint &checkpoint, const model::SafetensorsCheckpoint &expected) {
-  for (const model::gguf::Copy &copy : plan.copies)
-    check(holds(image, copy.destination, tensorBytes(checkpoint.require(copy.source.name))),
-          plan.name + " " + copy.source.name + ": as stored");
+  for (const model::gguf::Copy &copy : plan.copies) {
+    const bool decoded = copy.conversion == model::gguf::Conversion::DequantizeToBfloat16;
+    check(holds(image, copy.destination,
+                tensorBytes((decoded ? expected : checkpoint).require(copy.source.name))),
+          plan.name + " " + copy.source.name + (decoded ? ": its bf16 decode" : ": as stored"));
+  }
   for (const model::gguf::Repack &step : plan.repacks) {
     std::vector<uint8_t> native;
     for (const model::gguf::TensorRows &source : step.sources) {
@@ -84,12 +90,12 @@ void checkImage(const std::vector<uint8_t> &image, const model::gguf::Image &pla
 
 int main(int argc, char **argv) {
   @autoreleasepool {
-    if (argc != 4) {
-      std::fprintf(stderr, "usage: draft-preparation METALLIB FIXTURE GOLDENS\n");
+    if (argc != 5) {
+      std::fprintf(stderr, "usage: draft-preparation METALLIB FIXTURE GOLDENS SECTION\n");
       return 2;
     }
     const std::filesystem::path root(argv[2]);
-    const Goldens hashes = goldens(argv[3], @"draft_images");
+    const Goldens hashes = goldens(argv[3], @(argv[4]));
     MetalBackend backend(argv[1]);
     const model::DFlashDraftLayout layout = tinyDraftLayout();
     guarded("draft preparation", [&] {

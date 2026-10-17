@@ -346,6 +346,7 @@ void addCopyTasks(uint8_t *image, const gguf::Copy &copy,
           break;
         }
         case gguf::Conversion::DequantizeToFloat32: // decoded on the GPU (writeDecoded)
+        case gguf::Conversion::DequantizeToBfloat16:
         case gguf::Conversion::None: break;
         }
       });
@@ -469,7 +470,7 @@ void writeRepack(metal::MetalBackend &backend, const metal::MetalBuffer &image, 
   }
 }
 
-// The rows of a DequantizeToFloat32 copy that one run decodes: as many as the
+// The rows of a decoding copy that one run decodes: as many as the
 // staging holds, whose elements the gather's 32-bit index counts (no format
 // holds more than eight in a byte).
 uint64_t decodedRun(const gguf::Copy &copy) {
@@ -479,24 +480,26 @@ uint64_t decodedRun(const gguf::Copy &copy) {
   return run;
 }
 
-// Writes a DequantizeToFloat32 copy: runs of its native rows staged in input,
-// each gathered on the GPU (kernels/shared/embedding.metal,
-// gguf_embed_f32_<format>) into the F32 values of its format's decode, the run's
-// rows by their ids in `ids` (0, 1, ...).
+// Writes a decoding copy: runs of its native rows staged in input, each
+// gathered on the GPU (kernels/shared/embedding.metal, gguf_embed_f32_<format>
+// or gguf_embed_<format>) into the F32 or bf16 values of its format's decode,
+// the run's rows by their ids in `ids` (0, 1, ...).
 void writeDecoded(metal::MetalBackend &backend, const metal::MetalBuffer &image, const gguf::Copy &copy,
                   const metal::MetalBuffer &input, const metal::MetalBuffer &ids) {
   const gguf::TensorRows &rows = copy.source;
   const QuantFormat &format = kQuantFormats[gguf_format_of(rows.type)];
   if (rows.rowBytes % format.block_bytes) throw GgufError("decoded rows are not whole native blocks: " + rows.name);
   const uint64_t columns = rows.rowBytes / format.block_bytes * format.block_elements, run = decodedRun(copy);
+  const bool float32 = copy.conversion == gguf::Conversion::DequantizeToFloat32;
+  const uint64_t valueBytes = float32 ? sizeof(float) : sizeof(uint16_t);
   for (uint64_t first = 0; first < rows.rows; first += run) {
     const uint64_t count = std::min(run, rows.rows - first);
     readRows(rows, first, count, 0, rows.rowBytes, static_cast<uint8_t *>(input.contents()));
     const GgufEmbedParams params{static_cast<uint32_t>(count), static_cast<uint32_t>(count),
                                  static_cast<uint32_t>(columns)};
-    const metal::MetalBuffer output = backend.view(image, copy.destination + first * columns * sizeof(float),
-                                                   count * columns * sizeof(float));
-    static_cast<void>(backend.submit({std::string("gguf_embed_f32_") + format.name,
+    const metal::MetalBuffer output = backend.view(image, copy.destination + first * columns * valueBytes,
+                                                   count * columns * valueBytes);
+    static_cast<void>(backend.submit({std::string(float32 ? "gguf_embed_f32_" : "gguf_embed_") + format.name,
                                       {{0, ids}, {1, input}, {2, output}},
                                       {{3, &params, sizeof(params)}}, {(count * columns + 255) / 256, 1, 1},
                                       {256, 1, 1}}));
@@ -515,7 +518,7 @@ void writeGgufImage(metal::MetalBackend &backend, const metal::MetalBuffer &imag
   std::vector<const gguf::Copy *> decoded;
   uint64_t staging = 0, ids = 0;
   for (const gguf::Copy &copy : plan.copies) {
-    const bool decodes = copy.conversion == gguf::Conversion::DequantizeToFloat32;
+    const bool decodes = gguf::decodes(copy.conversion);
     if (!copy.source.rows || !copy.source.rowBytes ||
         (copy.conversion != gguf::Conversion::None && !decodes && copy.source.rowBytes % 4))
       throw GgufError("invalid prepared weight copy");
@@ -541,7 +544,7 @@ void writeGgufImage(metal::MetalBackend &backend, const metal::MetalBuffer &imag
   // quantization operation.
   std::vector<std::function<void(std::vector<uint8_t> &)>> tasks;
   for (const gguf::Copy &copy : plan.copies)
-    if (copy.conversion != gguf::Conversion::DequantizeToFloat32) addCopyTasks(destination.data(), copy, tasks);
+    if (!gguf::decodes(copy.conversion)) addCopyTasks(destination.data(), copy, tasks);
   std::vector<std::vector<uint8_t>> copyStaging(loadThreads());
   parallelFor(tasks.size(), [&](size_t index, unsigned thread) { tasks[index](copyStaging[thread]); });
   // One staging buffer serves every repack and decoded copy of the image.

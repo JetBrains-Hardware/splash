@@ -99,10 +99,24 @@ struct Fill {
 // native rows, which the GPU decodes as the format's gather does
 // (kernels/common/gguf_embedding_formats.h) and the kernels read unquantized
 // (a safetensors MoE router and shared-expert gate, GDN alpha and beta of two
-// types or of BF16 or F16), or as the F32 1 + w of a BF16 RMSNorm
+// types or of BF16 or F16), as the bf16 values of that decode, rounded once
+// (an MLX-quantized draft's selector codebooks, which the draft kernels read
+// as bf16), or as the F32 1 + w of a BF16 RMSNorm
 // weight w, which transformers stores 1 below the weight the norm multiplies
 // by (exact but where |w| < 2^-16 or |w| >= 2^24, which it may round once).
-enum class Conversion : uint8_t { None, NarrowToBfloat16, WidenToFloat32, Decay, DequantizeToFloat32, CenteredNorm };
+enum class Conversion : uint8_t {
+  None,
+  NarrowToBfloat16,
+  WidenToFloat32,
+  Decay,
+  DequantizeToFloat32,
+  DequantizeToBfloat16,
+  CenteredNorm
+};
+// Whether a conversion decodes a quantized tensor on the GPU.
+[[nodiscard]] constexpr bool decodes(Conversion conversion) noexcept {
+  return conversion == Conversion::DequantizeToFloat32 || conversion == Conversion::DequantizeToBfloat16;
+}
 // Rows written back to back, each value converted as `conversion` says.
 struct Copy {
   uint64_t destination = 0;

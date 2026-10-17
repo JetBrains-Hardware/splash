@@ -1,9 +1,12 @@
 #include "model/DraftCheckpoint.hpp"
 #include "metal/abi/DraftAttention.h"
+#include "metal/abi/Gguf.h"
 #include "model/DFlashDraft.hpp"
 #include "model/GgufPreparation.hpp"
+#include "model/SafetensorsImage.hpp"
 
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -11,32 +14,57 @@
 namespace splash::model {
 namespace {
 
-// Plans one image from the checkpoint's BF16 tensors, which must have the
-// shapes the draft reads.
+// Plans one image from the checkpoint's tensors, which must have the shapes
+// the draft reads: BF16 as a DFlash2 release stores them, or each projection
+// and selector codebook quantized as an MLX conversion (mlx_lm.convert -q)
+// stores it.
 class Builder {
 public:
   Builder(const SafetensorsCheckpoint &checkpoint, std::string name, uint32_t layer, uint32_t type)
       : checkpoint_(checkpoint), image_(std::move(name), layer, type) {}
 
-  // A tensor copied as stored: a norm, a convolution's base kernel or a
-  // selector codebook.
+  // A tensor copied as stored: a norm or a convolution's base kernel.
   void stored(const std::string &name, const std::vector<uint64_t> &shape) {
     const SourceTensor &tensor = require(name, shape);
     image_.copy({name, ggml::kBF16, tensor.offset, 1, tensor.bytes, {}, tensor.file});
   }
 
-  // A projection of `columns` inputs: its parts' rows in order, af4g64 planes.
+  // A selector codebook of [rows, columns], which the draft kernels read as
+  // bf16: as stored, or the bf16 values of its MLX quantization's decode.
+  // A release stores the codebook as a tensor of its own name, without the
+  // .weight of a quantized module's codes.
+  void codebook(const std::string &name, uint64_t rows, uint64_t columns) {
+    if (!checkpoint_.find(name + ".scales")) return stored(name, {rows, columns});
+    const std::optional<gguf::TensorRows> source = safetensors::mlxQuantizedRows(checkpoint_, name, rows, columns);
+    if (!source || !gguf_embedding_format(gguf_format_of(source->type)))
+      throw WeightStoreError(name + " is in a format the draft preparation does not decode");
+    image_.copy(*source, gguf::Conversion::DequantizeToBfloat16);
+  }
+
+  // A projection of `columns` inputs: its parts' rows in order, as planes of
+  // the MLX quantization they share, or af4g64 planes of BF16 parts, which
+  // the writer quantizes as MLX's affine quantization rounds them.
   void projection(std::initializer_list<std::pair<std::string, uint64_t>> parts, uint64_t columns) {
-    const QuantFormat &format = kQuantFormats[GGUF_FMT_AF4G64];
     std::vector<gguf::TensorRows> sources;
     uint64_t rows = 0;
+    size_t quantized = 0;
     for (const auto &[name, count] : parts) {
-      const SourceTensor &tensor = require(name + ".weight", {count, columns});
-      sources.push_back({name, format.ggml_type, 0, count, ggufRowBytes(format, columns), {}, tensor.file,
-                         {.bfloat16 = &tensor}});
+      if (std::optional<gguf::TensorRows> source = safetensors::mlxQuantizedRows(checkpoint_, name, count, columns)) {
+        if (quantized != sources.size() || (quantized && source->type != sources.front().type))
+          throw WeightStoreError(name + " is stored in another format than its projection's other parts");
+        sources.push_back(*source);
+        ++quantized;
+      } else {
+        if (quantized) throw WeightStoreError(name + " is stored in another format than its projection's other parts");
+        const QuantFormat &format = kQuantFormats[GGUF_FMT_AF4G64];
+        const SourceTensor &tensor = require(name + ".weight", {count, columns});
+        sources.push_back({name, format.ggml_type, 0, count, ggufRowBytes(format, columns), {}, tensor.file,
+                           {.bfloat16 = &tensor}});
+      }
       rows += count;
     }
-    gguf::Repack repack = image_.planes(GGUF_FMT_AF4G64, rows, columns, parts.begin()->first);
+    const uint32_t format = quantized ? gguf_format_of(sources.front().type) : GGUF_FMT_AF4G64;
+    gguf::Repack repack = image_.planes(format, rows, columns, parts.begin()->first);
     repack.sources = std::move(sources);
     image_.repack(std::move(repack));
   }
@@ -87,8 +115,8 @@ gguf::Image modelImage(const SafetensorsCheckpoint &checkpoint, const DFlashDraf
   b.stored("hidden_norm.weight", {hidden});
   b.stored("norm.weight", {hidden});
   b.projection({{selector + "hidden_projection", layout.selectorRank}}, hidden);
-  b.stored(selector + "predecessor_codebook", {layout.vocabularySize, layout.selectorRank});
-  b.stored(selector + "successor_codebook", {layout.vocabularySize, layout.selectorRank});
+  b.codebook(selector + "predecessor_codebook", layout.vocabularySize, layout.selectorRank);
+  b.codebook(selector + "successor_codebook", layout.vocabularySize, layout.selectorRank);
   return b.finish();
 }
 

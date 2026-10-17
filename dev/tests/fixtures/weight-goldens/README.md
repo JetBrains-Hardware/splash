@@ -12,6 +12,8 @@
   GGUF fixtures.
 - `draft_images`: every image `draft-preparation` writes from the DFlash2
   draft checkpoint `run_draft_preparation.py` writes.
+- `draft_images_mlx`: the same from that checkpoint as an MLX conversion
+  stores it; its layer images hash as `draft_images`' do.
 - `vision_image`: the image written from every `run_vision_preparation.py`
   tower.
 
