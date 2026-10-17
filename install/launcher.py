@@ -216,7 +216,14 @@ def serve(args):
             ) from None
         lock.seek(0)
         lock.truncate()
-        json.dump({"pid": os.getpid(), "model": args.model, "port": args.port}, lock)
+        json.dump(
+            {
+                "pid": os.getpid(),
+                "model": model_artifacts.model_label(args.model),
+                "port": args.port,
+            },
+            lock,
+        )
         lock.flush()
         # Fail before downloads/builds if another service owns the selected port.
         # The HTTP server also binds before loading weights, closing the race.
@@ -252,7 +259,7 @@ def serve(args):
             "--tokenizer",
             str(root / "tokenizer"),
             "--model",
-            args.model,
+            selection.label,
             "--binary",
             str(paths.BINARY),
             "--port",
@@ -383,7 +390,8 @@ def parse_args(argv=None):
         epilog=(
             "Examples:\n"
             "  splash serve --model unsloth/Qwen3.8-27B-GGUF:UD-Q4_K_M\n"
-            "  splash serve --model unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M --max-context 128K\n\n"
+            "  splash serve --model unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M --max-context 128K\n"
+            "  splash serve --model ~/models/My-MLX-4bit --draft-model ~/models/My-DFlash2\n\n"
             "SIZE is bytes, or a number with K, M or G (1024-based), such as 28G.\n"
             "DURATION is seconds, or a number with s, m or h, such as 30m.\n\n"
             "After Ready, open http://127.0.0.1:PORT in a browser on this Mac, or\n"
@@ -399,10 +407,11 @@ def parse_args(argv=None):
     model = groups["model"]
     model.add_argument(
         "--model",
-        type=serve_options.parse_model_id,
+        type=model_artifacts.parse_model_id,
         required=True,
-        metavar="OWNER/REPO[:VARIANT]",
-        help="upstream Hugging Face model, with a GGUF variant after ':' (e.g. :UD-Q4_K_M)",
+        metavar="OWNER/REPO[:VARIANT]|DIR",
+        help="upstream Hugging Face model, with a GGUF variant after ':' (e.g. :UD-Q4_K_M), "
+        "or a local model directory, served under the directory's name",
     )
     model.add_argument(
         "--revision",

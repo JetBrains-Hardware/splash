@@ -82,7 +82,7 @@ access.
 
 | Option | Default | Purpose |
 | --- | --- | --- |
-| `--model` | Required | The upstream model, `OWNER/REPO`, or a GGUF's `OWNER/REPO:VARIANT`. See [upstream model loading](#upstream-model-loading). |
+| `--model` | Required | The upstream model, `OWNER/REPO`, or a GGUF's `OWNER/REPO:VARIANT`, or a local model directory. See [upstream model loading](#upstream-model-loading) and [local model directories](#local-model-directories). |
 | `--revision` | Default branch | Select an upstream target branch, tag, or commit. See [revisions](#revisions). |
 | `--draft-model` | Matching DFlash2 checkpoint | Override the draft with a compatible repository or local directory. See [drafts](#drafts). |
 | `--language-only` | Off | Skip vision loading; image and PDF input is rejected. See [vision](#vision). |
@@ -1279,6 +1279,30 @@ splash serve --model mlx-community/Qwen3.8-27B-4bit --language-only
 
 A model ID with `--revision`, `--language-only` or `--draft-model` is a
 separate installation from the same ID without them.
+
+### Local model directories
+
+```bash
+splash serve --model ~/models/My-MLX-4bit --draft-model ~/models/My-DFlash2
+```
+
+`--model DIR` installs the model a local directory holds, as `--draft-model
+DIR` takes a local draft: an MLX checkpoint with its tokenizer, or a
+repository's files with one target GGUF. The directory is one more source
+(`hub.Repository.local_directory`): it is inspected and paired with its
+family's draft exactly as a repository is, its files are linked into an
+assembly under the models root, and `model.json` records each with its
+content digest, which costs one read of the directory at installation. Every
+later start verifies the links by size and time and starts without the Hub;
+when a file in the directory changes, the assembly is built again. The
+directory itself is never written. The model is served as the directory's
+name (`/v1/models` and the startup summary); `--served-model-name` adds
+aliases as for any model. Its selection link is under `.selections`, keyed by
+the absolute path and the source options, so the same directory under
+`--language-only` or another `--draft-model` is a separate installation. A
+local directory has no revision, so `--revision` is rejected; a Splash
+package directory is refused as one on the Hub is ([Splash
+packages](#splash-packages)).
 
 ### MLX targets
 

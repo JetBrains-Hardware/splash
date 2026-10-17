@@ -1626,6 +1626,15 @@ class FrontendServer(HTTPServer):
         super().handle_error(request, client_address)
 
 
+def _parse_model_id(value):
+    """The model's API ID: a Hub ID, owner/repo[:variant], or the name of a
+    local model directory (install/models.py model_label), a served name
+    without a slash."""
+    if "/" in value:
+        return serve_options.parse_model_id(value)
+    return serve_options.parse_served_model_name(value)
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1636,9 +1645,9 @@ def parse_args(argv=None):
     parser.add_argument("--tokenizer", required=True)
     parser.add_argument(
         "--model",
-        type=serve_options.parse_model_id,
+        type=_parse_model_id,
         required=True,
-        metavar="OWNER/REPO",
+        metavar="OWNER/REPO|NAME",
     )
     parser.add_argument("--port", type=int, default=serve_options.DEFAULT_PORT)
     parser.add_argument("--binary", default=str(ROOT / "build" / "splash"))

@@ -353,10 +353,10 @@ class ServeOptionsTests(unittest.TestCase):
         for arguments in (
             [],
             required[:-2],
-            [*required[:-1], "qwen3.8-27b"],
-            [*required[:-1], "Qwen3.8-27B"],
             [*required[:-1], "https://huggingface.co/community/model"],
             [*required[:-1], "community/../model"],
+            [*required[:-1], "my model"],
+            [*required[:-1], ".."],
         ):
             with (
                 self.subTest(arguments=arguments),
@@ -364,6 +364,10 @@ class ServeOptionsTests(unittest.TestCase):
                 self.assertRaises(SystemExit),
             ):
                 api.parse_args(arguments)
+        # A local model directory is served under its name, without a slash.
+        self.assertEqual(
+            api.parse_args([*required[:-1], "My-MLX-4bit"]).model, "My-MLX-4bit"
+        )
         args = api.parse_args(required)
         self.assertEqual(Path(args.model_root), package)
         self.assertEqual(Path(args.tokenizer), package / "tokenizer")
