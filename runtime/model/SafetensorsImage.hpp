@@ -19,6 +19,8 @@
 #include "model/QwenHybridLayout.hpp"
 #include "model/SafetensorsCheckpoint.hpp"
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -54,5 +56,16 @@ enum class ModuleNames : uint8_t { Mlx, Transformers };
 // unquantized (model/ModelDescriptor.mm). The router, the shared-expert gate,
 // GDN alpha and beta and the token table are not among them.
 [[nodiscard]] std::vector<std::string> quantizedModules(const QwenTargetDimensions &geometry, ModuleNames names);
+
+// The native rows of a module MLX quantized, [experts,] rows of `columns`, in
+// the format MLX infers from its codes [experts, rows, columns * bits / 32]
+// (U32) and scales [experts, rows, columns / group size]: bf16 with bf16
+// biases (affine), uint8 E8M0 exponents (mxfp4, 4 bits in groups of 32) or
+// uint8 E4M3 scales (nvfp4, 4 bits in groups of 16). None when the
+// checkpoint holds the module's weight unquantized; a module without a
+// weight is a missing source tensor.
+[[nodiscard]] std::optional<gguf::TensorRows> mlxQuantizedRows(const SafetensorsCheckpoint &checkpoint,
+                                                               const std::string &module, uint64_t rows,
+                                                               uint64_t columns, uint64_t experts = 1);
 
 } // namespace splash::model::safetensors

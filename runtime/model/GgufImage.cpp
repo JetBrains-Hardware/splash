@@ -333,10 +333,11 @@ uint64_t convertedBytes(const TensorRows &source, Conversion conversion, uint64_
   case Conversion::NarrowToBfloat16: return sourceBytes / 2;
   case Conversion::WidenToFloat32: case Conversion::CenteredNorm: return sourceBytes * 2;
   case Conversion::Decay: return source.type == ggml::kBF16 ? sourceBytes * 2 : sourceBytes;
-  case Conversion::DequantizeToFloat32: {
+  case Conversion::DequantizeToFloat32: case Conversion::DequantizeToBfloat16: {
     const uint32_t format = gguf_format_of(source.type);
     if (format == GGUF_FMT_COUNT) throw GgufError("not a quantized tensor: " + source.name);
-    return sourceBytes / kQuantFormats[format].block_bytes * kQuantFormats[format].block_elements * 4;
+    const uint64_t valueBytes = conversion == Conversion::DequantizeToFloat32 ? 4 : 2;
+    return sourceBytes / kQuantFormats[format].block_bytes * kQuantFormats[format].block_elements * valueBytes;
   }
   case Conversion::None: break;
   }

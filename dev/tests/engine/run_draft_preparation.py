@@ -1,6 +1,10 @@
 """A small DFlash2 draft checkpoint and the af4g64 rows MLX's affine
 quantization rounds each of its projections to, an independent oracle of the
-draft's prepared planes, then the golden hashes of its images."""
+draft's prepared planes, then the golden hashes of its images; then the same
+checkpoint as an MLX conversion stores it (mlx_lm.convert -q), its
+projections and selector codebooks quantized to those rows, whose layer
+images hash as the BF16 checkpoint's and whose codebooks the oracle decodes
+to bf16."""
 
 import argparse
 import math
@@ -56,18 +60,53 @@ def quantized_group(weights):
     return struct.pack("<HH", bf16(scale), bf16(bias)) + packed
 
 
-def draft_fixture(root):
+def mlx_tensors(name, rows, columns, native):
+    """The weight codes (U32), scales and biases (BF16) MLX stores for a
+    module of af4g64 rows `native`: each block's packed codes are the
+    little-endian bytes of its codes' U32 words."""
+    blocks = [native[i : i + 36] for i in range(0, len(native), 36)]
+    groups = columns // 64
+    return {
+        name + ".weight": (
+            [rows, columns // 8],
+            "U32",
+            b"".join(b[4:] for b in blocks),
+        ),
+        name + ".scales": ([rows, groups], "BF16", b"".join(b[0:2] for b in blocks)),
+        name + ".biases": ([rows, groups], "BF16", b"".join(b[2:4] for b in blocks)),
+    }
+
+
+def decoded(native):
+    """The bf16 values of af4g64 rows, scale * code + bias rounded once to
+    float32, as the gather's fma, then to bf16."""
+    out = []
+    for start in range(0, len(native), 36):
+        scale_bits, bias_bits = struct.unpack_from("<HH", native, start)
+        scale = struct.unpack("<f", struct.pack("<I", scale_bits << 16))[0]
+        bias = struct.unpack("<f", struct.pack("<I", bias_bits << 16))[0]
+        for byte in native[start + 4 : start + 36]:
+            for code in (byte & 15, byte >> 4):
+                out.append(bf16(f32(code * scale + bias)))
+    return struct.pack(f"<{len(out)}H", *out)
+
+
+def draft_fixture(root, quantized=False):
     """A two-layer DFlash2 checkpoint of width 256, its BF16 safetensors as
     its repository releases them, and expected/native.safetensors: each
     projection's native af4g64 rows, as MLX's affine quantization rounds
-    them."""
+    them. With `quantized`, the checkpoint stores those rows as MLX does, and
+    the selector codebooks quantized as well, and the expected codebooks are
+    their bf16 decode."""
     tensors, values, expected = {}, {}, {}
 
     def add(name, shape, data=None):
         count = math.prod(shape)
         if data is None:
             # Multiples of 1/64 within 4 of zero, each exactly a BF16.
-            seed = len(tensors) + 1
+            # Seeded by the tensor's place, not by the tensors stored so far,
+            # which an MLX module's three take the place of one.
+            seed = len(values) + 1
             data = [((i * 37 + seed * 11) % 509 - 254) / 64 for i in range(count)]
         values[name] = data
         tensors[name] = (shape, "BF16", struct.pack(f"<{count}H", *map(bf16, data)))
@@ -80,6 +119,22 @@ def draft_fixture(root):
             for start in range(0, len(weights), 64)
         )
         expected[name] = ([rows, columns // 64 * 36], "U8", native)
+        if quantized:
+            del tensors[name + ".weight"]
+            tensors.update(mlx_tensors(name, rows, columns, native))
+
+    def codebook(name):
+        add(name, [256, 256])
+        if not quantized:
+            return
+        weights = values[name]
+        native = b"".join(
+            quantized_group(weights[start : start + 64])
+            for start in range(0, len(weights), 64)
+        )
+        del tensors[name]
+        tensors.update(mlx_tensors(name, 256, 256, native))
+        expected[name] = ([256, 256], "BF16", decoded(native))
 
     for layer in range(2):
         p = f"layers.{layer}."
@@ -118,8 +173,8 @@ def draft_fixture(root):
     add("hidden_norm.weight", [256])
     add("norm.weight", [256])
     projection("candidate_selector.hidden_projection", 256, 256)
-    add("candidate_selector.predecessor_codebook", [256, 256])
-    add("candidate_selector.successor_codebook", [256, 256])
+    codebook("candidate_selector.predecessor_codebook")
+    codebook("candidate_selector.successor_codebook")
     write_safetensors(root / "model.safetensors", tensors)
     (root / "expected").mkdir()
     write_safetensors(root / "expected" / "native.safetensors", expected)
@@ -131,18 +186,24 @@ def main():
     parser.add_argument("metallib", type=Path)
     parser.add_argument("goldens", type=Path)
     args = parser.parse_args()
-    with tempfile.TemporaryDirectory(prefix="splash-draft-preparation-") as directory:
-        root = Path(directory)
-        draft_fixture(root)
-        command = [
-            str(args.binary.resolve()),
-            str(args.metallib.resolve()),
-            str(root),
-            str(args.goldens.resolve()),
-        ]
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
-        assert result.returncode == 0, result.stdout + result.stderr
-        print(result.stdout.splitlines()[-1])
+    for quantized, section in ((False, "draft_images"), (True, "draft_images_mlx")):
+        with tempfile.TemporaryDirectory(
+            prefix="splash-draft-preparation-"
+        ) as directory:
+            root = Path(directory)
+            draft_fixture(root, quantized)
+            command = [
+                str(args.binary.resolve()),
+                str(args.metallib.resolve()),
+                str(root),
+                str(args.goldens.resolve()),
+                section,
+            ]
+            result = subprocess.run(
+                command, capture_output=True, text=True, check=False
+            )
+            assert result.returncode == 0, result.stdout + result.stderr
+            print(f"{section}: {result.stdout.splitlines()[-1]}")
 
 
 if __name__ == "__main__":

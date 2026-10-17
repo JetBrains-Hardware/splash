@@ -43,5 +43,10 @@
     "draft/layer-1.bin": "2f5f7b1507c362cb8e8b4ec7eb2b66459ada7c01e18b4140abc7420deafbf921",
     "draft/model.bin": "50532cd62688df5ca2fe846956ec11fa291eb49ecb1690a47a55b34e79a6fcd3"
   },
+  "draft_images_mlx": {
+    "draft/layer-0.bin": "9f700c359015aa3ff675724ac96e27d387bd315fab822d330687d6efca08a4c9",
+    "draft/layer-1.bin": "2f5f7b1507c362cb8e8b4ec7eb2b66459ada7c01e18b4140abc7420deafbf921",
+    "draft/model.bin": "25b31f709335bdeeb4a42ac7c4c6612dd5c8b24f957b3b3fed8baece2bcdb84c"
+  },
   "vision_image": "f1a165335c42384479f73d83e69146cfa46d4964d66ed13c663b158fed08cdd5"
 }

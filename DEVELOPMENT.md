@@ -1447,16 +1447,25 @@ Each family names the repository of the DFlash2 checkpoint trained for it
 Installation downloads only those files and follows the repository's default
 branch as it follows the target's ([Revisions](#revisions)); `--draft-model`
 accepts another repository, followed the same way, or a local directory that
-holds them. A checkpoint is installed only when the engine accepts its
+holds them, including an MLX conversion of the checkpoint (`mlx_lm.convert
+-q`, whose `config.json` states the quantization). A checkpoint is installed
+only when the engine accepts its
 configuration with the target's (its `model-check`), so a draft of another
 architecture never replaces one that loads. Native loading validates the
 configuration against the target again and loads the draft like a target
 ([Weight loading](#weight-loading)):
 `DraftCheckpointLoader` (`DraftCheckpoint.cpp`) plans the draft's `MDGG0001`
 images, one per layer and one for the rest, and `GgufPreparation` quantizes
-each projection into af4g64 planes, 4 bits in groups of 64 as MLX's affine
-quantization rounds them, and copies every other tensor as stored. The draft
-runs on the block kernels its target's projections run on.
+each BF16 projection into af4g64 planes, 4 bits in groups of 64 as MLX's
+affine quantization rounds them, retiles an MLX-quantized projection into the
+planes of its format without requantization, decodes an MLX-quantized
+selector codebook into the bf16 the draft kernels read (`scale * code +
+bias`, rounded once to F32 and then to bf16, as the token gather decodes it),
+and copies every other tensor as stored. A 4-bit conversion in groups of 64
+prepares the layer images of the BF16 checkpoint byte for byte, since MLX's
+quantization is the one the preparation applies; its `model.bin` differs in
+the codebooks' rounding. The draft runs on the block kernels its target's
+projections run on.
 
 ### Vision
 
@@ -1677,8 +1686,8 @@ for the draft, `GgufTargetLoader` (`GgufTarget.cpp`, planned by
 `GgufImage.cpp`) and `GgufPreparation` for a GGUF target, `VisionLoader` and
 `VisionPreparation` for a safetensors or GGUF vision tower. `GgufPreparation`
 repacks GGUF blocks ([GGUF targets](#gguf-targets)) and safetensors tensors
-without requantization, quantizes the draft's BF16 projections
-([Drafts](#drafts)), and computes a safetensors target's GDN decay as
+without requantization, quantizes the draft's BF16 projections and decodes an
+MLX-quantized draft's codebooks ([Drafts](#drafts)), and computes a safetensors target's GDN decay as
 `float(-exp(double(A_log)))`, which may differ by one float ULP from MLX's float
 exponential.
 

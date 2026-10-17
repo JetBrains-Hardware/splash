@@ -16,8 +16,9 @@ class ModelFamily:
     # runtime/model/Qwen3_8.hpp and Qwen3_6Moe.hpp).
     name: str
     # The repository of the DFlash2 checkpoint trained for the family, as its
-    # release publishes it: config.json and BF16 safetensors. Installations
-    # follow its default branch as they follow the target's.
+    # release publishes it: config.json and BF16 safetensors (--draft-model
+    # also takes an MLX conversion of it). Installations follow its default
+    # branch as they follow the target's.
     draft_repo: str
 
 
