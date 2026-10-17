@@ -140,9 +140,7 @@ def _ensure_installed(selection):
         model_artifacts.run_engine(["device-check"], "device check")
     except model_artifacts.ModelError as error:
         raise LauncherError(str(error)) from None
-    command = [
-        str(paths.PYTHON),
-        str(ROOT / "install/models.py"),
+    command = paths.program("install-models", str(ROOT / "install/models.py")) + [
         "--models",
         str(selection.models_root),
         "--model",
@@ -275,12 +273,7 @@ def serve(args):
         # The server package of this installation, from any working
         # directory: -P keeps the directory, which may hold a package of the
         # same name, off sys.path, and PYTHONPATH names the root.
-        command = [
-            str(paths.PYTHON),
-            "-u",
-            "-P",
-            "-m",
-            "server.server",
+        command = paths.program("server", "-u", "-P", "-m", "server.server") + [
             str(root),
             "--tokenizer",
             str(root / "tokenizer"),

@@ -81,10 +81,16 @@ def render(payload, limits, remaining):
     infinite when it has no deadline, and the worker's own time limit."""
     duration = min(MAX_SECONDS, remaining)
     deadline = time.monotonic() + duration
+    # A frozen server has no interpreter to run this module with; its entry
+    # point starts the worker by name instead (dev/tools/frozen_server.py).
+    worker = (
+        ["document-worker"]
+        if getattr(sys, "frozen", False)
+        else ["-m", "server.document_worker"]
+    )
     command = [
         sys.executable,
-        "-m",
-        "server.document_worker",
+        *worker,
         json.dumps(limits),
         str(duration),
     ]

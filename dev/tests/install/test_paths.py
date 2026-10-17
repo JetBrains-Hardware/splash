@@ -69,5 +69,23 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(crash_trace.DEFAULT_TRACE_DIRECTORY, data / "logs" / "crash")
 
 
+class ProgramTest(unittest.TestCase):
+    def test_a_program_runs_under_python_or_as_the_frozen_servers_subcommand(self):
+        arguments = ("-u", "-P", "-m", "server.server")
+        with mock.patch.object(paths, "FROZEN", False):
+            self.assertEqual(
+                paths.program("server", *arguments), [str(paths.PYTHON), *arguments]
+            )
+        with (
+            mock.patch.object(paths, "FROZEN", True),
+            mock.patch.object(paths.sys, "executable", "/bundle/splash-server"),
+        ):
+            # Interpreter options have no place: the executable takes none.
+            self.assertEqual(
+                paths.program("server", *arguments),
+                ["/bundle/splash-server", "server"],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
