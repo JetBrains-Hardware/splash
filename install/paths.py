@@ -12,17 +12,30 @@ data directory runs, and a port is the machine's.
 """
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGED = (ROOT / "release.json").is_file()
+# The frozen server build_server.sh builds: one executable, no interpreter.
+FROZEN = bool(getattr(sys, "frozen", False))
 DATA = Path.home() / "Library/Application Support/Splash" if PACKAGED else ROOT
 MODELS = DATA / "models" if PACKAGED else ROOT / "install/models"
 RUNTIME = DATA / "runtime" if PACKAGED else ROOT / "build/runtime"
 PYTHON = ROOT / ("python/bin/python3" if PACKAGED else ".venv/bin/python")
 BINARY = ROOT / ("engine/splash" if PACKAGED else "build/splash")
 DATA_VARIABLE = "SPLASH_DATA"
+
+
+def program(subcommand, *arguments):
+    """The command that runs one of Splash's Python programs: PYTHON with
+    these arguments (interpreter options, then a script or -m module), or in
+    the frozen server, which has no interpreter, this executable's
+    subcommand of that name (dev/tools/frozen_server.py)."""
+    if FROZEN:
+        return [sys.executable, subcommand]
+    return [str(PYTHON), *arguments]
 
 
 @dataclass(frozen=True)
