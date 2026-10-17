@@ -98,6 +98,7 @@ window. To set your own limits or cache options, add these to `splash serve`:
 | `--max-context 100K` | Set the context limit. |
 | `--language-only` | Skip vision; serve text only. |
 | `--model DIR` | Serve a local model directory instead of a Hub repository; `--draft-model DIR` takes a local draft. |
+| `--data-dir DIR` | Keep the models, downloads, caches and keys Splash writes under one directory (also `SPLASH_DATA`). |
 | `--kv-format bf16` | Use BF16 KV cache. Default: 8-bit (INT8). |
 | `--state-format bf16` | Use BF16 recurrent states, half the size. Default: FP32. |
 | `--disable-ane` | Prefill on the GPU alone. Default: the 27B also uses the Neural Engine. |
