@@ -1,0 +1,35 @@
+name: Splash server package
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-server-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-server:
+    name: Freeze the server bundle (macos-arm64)
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      # fetch-depth: 0 — build_server.sh names the archive after
+      # `git describe --tags`, which a shallow checkout cannot resolve.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Install uv for the frozen environment
+        run: HOMEBREW_NO_AUTO_UPDATE=1 brew install uv
+      - name: Build the server package
+        run: ./build_server.sh
+      - name: Preserve the server package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: splash-server-macos-arm64-${{ github.sha }}
+          path: |
+            dist/splash-server-*-macos-arm64.tar.gz
+            dist/splash-server-*-macos-arm64.tar.gz.sha256
+          if-no-files-found: error
