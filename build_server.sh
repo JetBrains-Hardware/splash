@@ -13,6 +13,22 @@ set -euo pipefail
 #
 # Extra make arguments, such as METAL=... METALLIB=... for a Metal toolchain
 # xcrun does not find, pass through MAKEFLAGS.
+#
+#   --skip-device-check  Do not run the bundled engine's device-check. The
+#                        packaging itself needs no GPU, so a machine without
+#                        a supported one (a VM, a CI runner) can still build;
+#                        the bundle is then unproven on real hardware.
+
+SKIP_DEVICE_CHECK=0
+for argument in "$@"; do
+  case "$argument" in
+  --skip-device-check) SKIP_DEVICE_CHECK=1 ;;
+  *)
+    echo "error: unknown option $argument (only --skip-device-check)" >&2
+    exit 64
+    ;;
+  esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -76,7 +92,11 @@ popd
 BUNDLE="$BUILD_DIR/dist/$NAME"
 "$BUNDLE/$NAME" --help >/dev/null
 # The engine starts from its bundled location and finds its shader library.
-"$BUNDLE/_internal/engine/splash" device-check
+if test "$SKIP_DEVICE_CHECK" = 1; then
+  echo "Skipping device-check (--skip-device-check)"
+else
+  "$BUNDLE/_internal/engine/splash" device-check
+fi
 
 mkdir -p "$(dirname "$ARCHIVE")"
 tar -czf "$ARCHIVE" -C "$BUILD_DIR/dist" "$NAME"
