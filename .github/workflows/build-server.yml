@@ -2,6 +2,13 @@ name: Splash server package
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_release:
+        # Tags are created by hand; run this workflow on the tag to release it.
+        description: Publish the package and checksum as a GitHub release (run on a tag)
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: build-server-${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +22,9 @@ jobs:
     name: Freeze the server bundle (macos-arm64)
     runs-on: macos-26
     timeout-minutes: 60
+    # Needed only by the optional release path; the workflow default stays read-only.
+    permissions:
+      contents: write
     steps:
       # fetch-depth: 0 — build_server.sh names the archive after
       # `git describe --tags`, which a shallow checkout cannot resolve.
@@ -36,3 +46,19 @@ jobs:
             dist/splash-server-*-macos-arm64.tar.gz
             dist/splash-server-*-macos-arm64.tar.gz.sha256
           if-no-files-found: error
+      # On a tag the archive is already named after it, so the release carries
+      # the same version as its assets.
+      - name: Publish the release
+        if: inputs.publish_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            echo "error: publish_release needs the workflow to run on a tag" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/splash-server-*-macos-arm64.tar.gz \
+            dist/splash-server-*-macos-arm64.tar.gz.sha256
