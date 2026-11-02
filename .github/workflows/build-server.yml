@@ -23,8 +23,11 @@ jobs:
           fetch-depth: 0
       - name: Install uv for the frozen environment
         run: HOMEBREW_NO_AUTO_UPDATE=1 brew install uv
+      # --skip-device-check: the hosted runner is a VM whose GPU is an Apple
+      # Paravirtual device, which the engine's hardware rule refuses. The
+      # packaging itself needs no GPU.
       - name: Build the server package
-        run: ./build_server.sh
+        run: ./build_server.sh --skip-device-check
       - name: Preserve the server package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
